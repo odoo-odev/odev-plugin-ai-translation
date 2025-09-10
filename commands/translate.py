@@ -101,7 +101,10 @@ class TranslateCommand(DatabaseCommand):
         Returns:
             The translated content as a string.
         """
-        llm = LLM(self.config.get("ai", "default_llm"), self.config.get("ai", "llm_api_key"))
+        llm = LLM(
+            self.config.get("ai", "default_llm"),
+            self.store.secrets.get("llm_api_key", scope="api", fields=["password"]).password,
+        )
 
         with progress.spinner(f"Waiting for '{llm.provider}' to complete the translation"):
             ai_translation = llm.completion(
