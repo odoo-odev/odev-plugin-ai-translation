@@ -49,8 +49,8 @@ class TranslateCommand(DatabaseCommand):
         """Searches for the module in the database and returns its ID."""
         module_ids = self._database.models["ir.module.module"].search([("name", "=", self.args.module_name)], limit=1)
         if not module_ids:
-            logger.error(f"Module '{self.args.module_name}' not found.")
-            return None
+            return logger.error(f"Module '{self.args.module_name}' not found.")
+
         return module_ids[0]
 
     def _export_po_file_content(self, module_id: int) -> tuple[str, str] | None:
@@ -109,7 +109,7 @@ class TranslateCommand(DatabaseCommand):
                     {
                         "role": "system",
                         "content": (
-                            f"Please translate this PO file into {self.args.lang} (ISO code)."
+                            f"Translate this PO file into {self.args.lang} (ISO code)."
                             "Just answer the result merged into the original file without the code block."
                         ),
                     },

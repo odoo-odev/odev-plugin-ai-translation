@@ -10,6 +10,5 @@ need odev version 4.0.0 or above.
 This plugin depends on `odev-plugin-ai`. Enable both plugins by running:
 
 ```bash
-odev plugin --enable odoo-odev/odev-plugin-ai
 odev plugin --enable odoo-odev/odev-plugin-ai-translation
 ```
