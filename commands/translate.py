@@ -118,7 +118,9 @@ class TranslateCommand(DatabaseCommand):
             )
 
         if not ai_translation:
-            logger.info(f"Translation completed successfully using '{llm.provider}'.")
+            raise ValueError("AI translation failed or returned no content.")
+
+        logger.info(f"Translation completed successfully using '{llm.provider}'.")
 
         return ai_translation
 
