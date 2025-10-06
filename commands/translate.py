@@ -3,15 +3,19 @@
 from __future__ import annotations
 
 import base64
+import json
 from pathlib import Path
 from typing import Any
 
 from odev.common import args, progress
 from odev.common.commands import DatabaseCommand
+from odev.common.databases.local import LocalDatabase
+from odev.common.databases.remote import RemoteDatabase
 from odev.common.logging import logging
 from odev.common.odoobin import OdoobinProcess
 
 from odev.plugins.odev_plugin_ai.common.llm import LLM
+from odev.plugins.odev_plugin_ai.common.odoo_context import OdooContext
 
 
 logger = logging.getLogger(__name__)
@@ -106,17 +110,46 @@ class TranslateCommand(DatabaseCommand):
             self.store.secrets.get("llm_api_key", scope="api", fields=["password"]).password,
         )
 
+        context = ""
+
+        if isinstance(self._database, RemoteDatabase):
+            database = LocalDatabase(self._database.name)
+            process = OdoobinProcess(database, version=self._database.version)
+            process.with_edition("enterprise")
+
+            if process.check_addons_path(self.args.path):
+                process.additional_addons_paths.append(self.args.path)
+            if process.check_addon_path(self.args.path):
+                process.additional_addons_paths.append(self.args.path.parent)
+
+        elif isinstance(self._database, LocalDatabase):
+            odoo_context = OdooContext(self._database._get_process_instance())
+            process = self._database._get_process_instance()
+        else:
+            raise ValueError("Unsupported database type for fetching context.")
+
+        process.update_worktrees()
+        odoo_context = OdooContext(process)
+        context = odoo_context.gather_po_context(po_content)
+        prompt_content = f"Here is the PO file content:\n```{po_content}```"
+
+        if context:
+            prompt_content += f"\n\nHere is some context to help with the translation:\n```{json.dumps(context)}```"
+
+        logger.debug(f"Calling LLM '{llm.provider}' for translation with prompt: {prompt_content}")
+
         with progress.spinner(f"Waiting for '{llm.provider}' to complete the translation"):
             ai_translation = llm.completion(
                 [
                     {
                         "role": "system",
                         "content": (
-                            f"Translate this PO file into {self.args.lang} (ISO code)."
-                            "Just answer the result merged into the original file without the code block."
+                            f"Translate the provided PO file into {self.args.lang} (ISO code)."
+                            "Just answer the result merged into the original file without the code block string."
+                            "If a context is provided, use it to improve the translation of specific terms."
                         ),
                     },
-                    {"role": "user", "content": po_content},
+                    {"role": "user", "content": prompt_content},
                 ]
             )
 
@@ -149,7 +182,8 @@ class TranslateCommand(DatabaseCommand):
         if OdoobinProcess.check_addons_path(output_path) and module_path.is_dir():
             if self.console.confirm(
                 f"A module folder '{self.args.module_name}' already exists in {output_path}. "
-                "Do you want to write the translation file inside its 'i18n' folder?"
+                "Do you want to write the translation file inside its 'i18n' folder?",
+                True,
             ):
                 l10n_path = module_path / "i18n"
                 l10n_path.mkdir(exist_ok=True)
