@@ -123,7 +123,6 @@ class TranslateCommand(DatabaseCommand):
                 process.additional_addons_paths.append(self.args.path.parent)
 
         elif isinstance(self._database, LocalDatabase):
-            odoo_context = OdooContext(self._database._get_process_instance())
             process = self._database._get_process_instance()
         else:
             raise ValueError("Unsupported database type for fetching context.")
