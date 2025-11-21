@@ -46,11 +46,11 @@ class TranslateCommand(DatabaseCommand):
     )
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
-        """Initializes the command."""
+        """Initialize the command."""
         super().__init__(*args, **kwargs)
 
     def _get_module_id(self) -> int | None:
-        """Searches for the module in the database and returns its ID."""
+        """Search for the module in the database and return its ID."""
         module_ids = self._database.models["ir.module.module"].search([("name", "=", self.args.module_name)], limit=1)
         if not module_ids:
             return logger.error(f"Module '{self.args.module_name}' not found.")
@@ -58,8 +58,7 @@ class TranslateCommand(DatabaseCommand):
         return module_ids[0]
 
     def _export_po_file_content(self, module_id: int) -> tuple[str, str] | None:
-        """
-        Exports the translatable terms of a module for a given language.
+        """Export the translatable terms of a module for a given language.
 
         This method uses Odoo's `base.language.export` wizard to generate
         a .po file.
@@ -96,8 +95,7 @@ class TranslateCommand(DatabaseCommand):
         return translation_data[0]["display_name"], translation_data[0]["data"]
 
     def _get_ai_translation(self, po_content: str) -> str:
-        """
-        Sends the .po file content to the configured LLM for translation.
+        """Send the .po file content to the configured LLM for translation.
 
         Args:
             po_content: The content of the .po file to be translated.
@@ -125,7 +123,7 @@ class TranslateCommand(DatabaseCommand):
         elif isinstance(self._database, LocalDatabase):
             process = self._database._get_process_instance()
         else:
-            raise ValueError("Unsupported database type for fetching context.")
+            raise TypeError("Unsupported database type for fetching context.")
 
         process.update_worktrees()
         odoo_context = OdooContext(process)
@@ -160,8 +158,7 @@ class TranslateCommand(DatabaseCommand):
         return ai_translation
 
     def _get_output_path(self) -> Path | None:
-        """
-        Determines and validates the output path for the translation file.
+        """Determine and validate the output path for the translation file.
 
         It checks if the path exists. If it's an addons path containing the target
         module, it prompts the user to save the translation in the module's `l10n`
@@ -182,7 +179,7 @@ class TranslateCommand(DatabaseCommand):
             if self.console.confirm(
                 f"A module folder '{self.args.module_name}' already exists in {output_path}. "
                 "Do you want to write the translation file inside its 'i18n' folder?",
-                True,
+                default=True,
             ):
                 l10n_path = module_path / "i18n"
                 l10n_path.mkdir(exist_ok=True)
@@ -193,8 +190,7 @@ class TranslateCommand(DatabaseCommand):
         return output_path
 
     def _write_translation_file(self, path: Path, filename: str, content: str) -> None:
-        """
-        Writes the translated content to a file.
+        """Write the translated content to a file.
 
         Args:
             path: The directory where the file will be saved.
@@ -207,7 +203,7 @@ class TranslateCommand(DatabaseCommand):
         logger.info(f"Translation file written to {full_path}.")
 
     def run(self) -> None:
-        """Executes the translation process."""
+        """Execute the translation process."""
         logger.info(f"Translating '{self.args.module_name}' from {self.args.database} into {self.args.lang}")
 
         module_id = self._get_module_id()
