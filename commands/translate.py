@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import base64
-import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +15,7 @@ from odev.common.logging import logging
 from odev.common.odoobin import OdoobinProcess
 
 from odev.plugins.odev_plugin_ai.common.llm import LLM
-from odev.plugins.odev_plugin_ai.common.odoo_context import OdooContext
+from odev.plugins.odev_plugin_ai.common.odoo_context import Context, OdooContext
 
 
 logger = logging.getLogger(__name__)
@@ -103,10 +103,17 @@ class TranslateCommand(DatabaseCommand):
         Returns:
             The translated content as a string.
         """
-        llm = LLM(
-            self.config.get("ai", "default_llm"),
-            self.store.secrets.get("llm_api_key", scope="api", fields=["password"]).password,
-        )
+        api_key_list = {}
+
+        for provider in self.config.ai.llm_order:
+            key = f"{provider}_api_key"
+            api_key_list[key.upper()] = self.odev.store.secrets.get(
+                key.lower(), scope="api", fields=["password"]
+            ).password
+
+        os.environ.update(api_key_list)
+
+        self.llm = LLM(llm_order=self.config.ai.llm_order)
 
         context = ""
 
@@ -128,32 +135,39 @@ class TranslateCommand(DatabaseCommand):
         process.update_worktrees()
         odoo_context = OdooContext(process)
         context = odoo_context.gather_po_context(po_content)
-        prompt_content = f"Here is the PO file content:\n```{po_content}```"
 
-        if context:
-            prompt_content += f"\n\nHere is some context to help with the translation:\n```{json.dumps(context)}```"
+        po_context = Context()
+        po_context.add_file(self.args.module_name, "translation.po", po_content)
 
-        logger.debug(f"Calling LLM '{llm.provider}' for translation with prompt: {prompt_content}")
+        messages = [
+            {
+                "role": "system",
+                "content": (
+                    f"Translate the provided PO file into {self.args.lang} (ISO code)."
+                    "Just answer the result merged into the original file without the code block string."
+                    "If a context is provided, use it to improve the translation of specific terms."
+                ),
+            },
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Here's the PO source file"},
+                    po_context,
+                    {"type": "text", "text": "And the related context files"},
+                    context,
+                ],
+            },
+        ]
 
-        with progress.spinner(f"Waiting for '{llm.provider}' to complete the translation"):
-            ai_translation = llm.completion(
-                [
-                    {
-                        "role": "system",
-                        "content": (
-                            f"Translate the provided PO file into {self.args.lang} (ISO code)."
-                            "Just answer the result merged into the original file without the code block string."
-                            "If a context is provided, use it to improve the translation of specific terms."
-                        ),
-                    },
-                    {"role": "user", "content": prompt_content},
-                ]
-            )
+        logger.debug(f"Calling LLM '{self.llm.model}' for translation of PO content (length: {len(po_content)})")
+
+        with progress.spinner(f"Waiting for '{self.llm.model}' to complete the translation"):
+            ai_translation = self.llm.completion(messages)
 
         if not ai_translation:
             raise ValueError("AI translation failed or returned no content.")
 
-        logger.info(f"Translation completed successfully using '{llm.provider}'.")
+        logger.info(f"Translation completed successfully using '{self.llm.model}'.")
 
         return ai_translation
 
