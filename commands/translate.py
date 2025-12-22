@@ -15,7 +15,8 @@ from odev.common.logging import logging
 from odev.common.odoobin import OdoobinProcess
 
 from odev.plugins.odev_plugin_ai.common.llm import LLM
-from odev.plugins.odev_plugin_ai.common.odoo_context import Context, OdooContext
+from odev.plugins.odev_plugin_ai.common.llm_prompt import LLMPrompt
+from odev.plugins.odev_plugin_ai.common.odoo_context import OdooContext
 
 
 logger = logging.getLogger(__name__)
@@ -115,8 +116,6 @@ class TranslateCommand(DatabaseCommand):
 
         self.llm = LLM(llm_order=self.config.ai.llm_order)
 
-        context = ""
-
         if isinstance(self._database, RemoteDatabase):
             database = LocalDatabase(self._database.name)
             process = OdoobinProcess(database, version=self._database.version)
@@ -134,35 +133,23 @@ class TranslateCommand(DatabaseCommand):
 
         process.update_worktrees()
         odoo_context = OdooContext(process)
-        context = odoo_context.gather_po_context(po_content)
+        context_prompt = odoo_context.gather_po_context(po_content)
 
-        po_context = Context()
-        po_context.add_file(self.args.module_name, "translation.po", po_content)
-
-        messages = [
-            {
-                "role": "system",
-                "content": (
-                    f"Translate the provided PO file into {self.args.lang} (ISO code)."
-                    "Just answer the result merged into the original file without the code block string."
-                    "If a context is provided, use it to improve the translation of specific terms."
-                ),
-            },
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "Here's the PO source file"},
-                    po_context,
-                    {"type": "text", "text": "And the related context files"},
-                    context,
-                ],
-            },
-        ]
+        prompt = LLMPrompt()
+        prompt.set_system(
+            f"Translate the provided PO file into {self.args.lang} (ISO code)."
+            "Just answer the result merged into the original file without the code block string."
+            "If a context is provided, use it to improve the translation of specific terms."
+        )
+        prompt.add_user("Here's the PO source file")
+        prompt.add_file(f"{self.args.module_name}/translation.po", po_content)
+        prompt.add_user("And the related context files")
+        prompt.add_user(context_prompt._user_parts)
 
         logger.debug(f"Calling LLM '{self.llm.model}' for translation of PO content (length: {len(po_content)})")
 
         with progress.spinner(f"Waiting for '{self.llm.model}' to complete the translation"):
-            ai_translation = self.llm.completion(messages)
+            ai_translation = self.llm.completion(prompt)
 
         if not ai_translation:
             raise ValueError("AI translation failed or returned no content.")
