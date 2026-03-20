@@ -97,14 +97,15 @@ class TranslateCommand(DatabaseCommand, AICommandMixin):
 
         process.update_worktrees()
         odoo_context = OdooContext(process)
-        context_prompt = odoo_context.gather_po_context(po_content)
+        paths_by_module = odoo_context.gather_po_context_paths(po_content)
 
         prompt_str = f"Translate the provided PO file directly at {filepath} into {self.args.lang} (ISO code).\n"
         prompt_str += "Write the translation directly to the file without returning anything in the chat.\n"
-        if context_prompt._user_parts:
-            prompt_str += "Here is some helpful context:\n"
-            for part in context_prompt._user_parts:
-                prompt_str += str(part) + "\n"
+        if paths_by_module:
+            prompt_str += "Use the following Odoo source files as context to better understand the terms to translate. You should read them if necessary:\n"
+            for module_name, files in paths_by_module.items():
+                for _, full_path in files:
+                    prompt_str += f" - {full_path} (from module '{module_name}')\n"
 
         agent = self.get_ai_agent()
         sandbox_dirs = [str(filepath.parent.resolve())]
