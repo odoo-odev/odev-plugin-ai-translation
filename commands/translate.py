@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import base64
-import os
 from pathlib import Path
 from typing import Any
 
@@ -14,21 +13,17 @@ from odev.common.databases.remote import RemoteDatabase
 from odev.common.logging import logging
 from odev.common.odoobin import OdoobinProcess
 
-from odev.plugins.odev_plugin_ai.common.llm import LLM
-from odev.plugins.odev_plugin_ai.common.llm_prompt import LLMPrompt
+from odev.plugins.odev_plugin_ai.common.mixins import AICommandMixin
 from odev.plugins.odev_plugin_ai.common.odoo_context import OdooContext
-
 
 logger = logging.getLogger(__name__)
 
 
-class TranslateCommand(DatabaseCommand):
+class TranslateCommand(DatabaseCommand, AICommandMixin):
     """Translates an Odoo module into a specified language using an AI model."""
 
     _name = "translate"
-    _aliases = [
-        "trad",
-    ]
+    _aliases = ["trad"]
 
     lang = args.String(
         aliases=["-l", "--lang"],
@@ -59,19 +54,7 @@ class TranslateCommand(DatabaseCommand):
         return module_ids[0]
 
     def _export_po_file_content(self, module_id: int) -> tuple[str, str] | None:
-        """Export the translatable terms of a module for a given language.
-
-        This method uses Odoo's `base.language.export` wizard to generate
-        a .po file.
-
-        Args:
-            module_id: The database ID of the module to translate.
-
-        Returns:
-            A tuple containing the display name (filename) and the base64-encoded
-            file content, or None if the export fails.
-        """
-        # @TODO: Check if lang is installed, handle error if not
+        """Export the translatable terms of a module for a given language."""
         language_export_id = self._database.models["base.language.export"].create(
             {
                 "lang": self.args.lang,
@@ -95,27 +78,8 @@ class TranslateCommand(DatabaseCommand):
 
         return translation_data[0]["display_name"], translation_data[0]["data"]
 
-    def _get_ai_translation(self, po_content: str) -> str:
-        """Send the .po file content to the configured LLM for translation.
-
-        Args:
-            po_content: The content of the .po file to be translated.
-
-        Returns:
-            The translated content as a string.
-        """
-        api_key_list = {}
-
-        for provider in self.config.ai.llm_order:
-            key = f"{provider}_api_key"
-            api_key_list[key.upper()] = self.odev.store.secrets.get(
-                key.lower(), scope="api", fields=["password"]
-            ).password
-
-        os.environ.update(api_key_list)
-
-        self.llm = LLM(llm_order=self.config.ai.llm_order)
-
+    def _run_ai_translation(self, filepath: Path, po_content: str) -> bool:
+        """Send the translation task to the CLI agent."""
         if isinstance(self._database, RemoteDatabase):
             database = LocalDatabase(self._database.name)
             process = OdoobinProcess(database, version=self._database.version)
@@ -133,42 +97,24 @@ class TranslateCommand(DatabaseCommand):
 
         process.update_worktrees()
         odoo_context = OdooContext(process)
-        context_prompt = odoo_context.gather_po_context(po_content)
+        paths_by_module = odoo_context.gather_po_context_paths(po_content)
 
-        prompt = LLMPrompt()
-        prompt.set_system(
-            f"Translate the provided PO file into {self.args.lang} (ISO code)."
-            "Just answer the result merged into the original file without the code block string."
-            "If a context is provided, use it to improve the translation of specific terms."
-        )
-        prompt.add_user("Here's the PO source file")
-        prompt.add_file(f"{self.args.module_name}/translation.po", po_content)
-        prompt.add_user("And the related context files")
-        prompt.add_user(context_prompt._user_parts)
+        prompt_str = f"Translate the provided PO file directly at {filepath} into {self.args.lang} (ISO code).\n"
+        prompt_str += "Write the translation directly to the file without returning anything in the chat.\n"
+        if paths_by_module:
+            prompt_str += "Use the following Odoo source files as context to better understand the terms to translate. You should read them if necessary:\n"
+            for module_name, files in paths_by_module.items():
+                for _, full_path in files:
+                    prompt_str += f" - {full_path} (from module '{module_name}')\n"
 
-        logger.debug(f"Calling LLM '{self.llm.model}' for translation of PO content (length: {len(po_content)})")
-
-        with progress.spinner(f"Waiting for '{self.llm.model}' to complete the translation"):
-            ai_translation = self.llm.completion(prompt)
-
-        if not ai_translation:
-            raise ValueError("AI translation failed or returned no content.")
-
-        logger.info(f"Translation completed successfully using '{self.llm.model}'.")
-
-        return ai_translation
+        agent = self.get_ai_agent()
+        sandbox_dirs = [str(filepath.parent.resolve())]
+        
+        with progress.spinner(f"Waiting for '{self.args.cli}' to complete the translation"):
+            return agent.run(prompt_str, sandbox_dirs)
 
     def _get_output_path(self) -> Path | None:
-        """Determine and validate the output path for the translation file.
-
-        It checks if the path exists. If it's an addons path containing the target
-        module, it prompts the user to save the translation in the module's `l10n`
-        directory.
-
-        Returns:
-            The resolved output path, or None if the path is invalid or the user
-            declines the prompt.
-        """
+        """Determine and validate the output path for the translation file."""
         output_path = Path(self.args.path)
 
         if not output_path.exists():
@@ -190,18 +136,13 @@ class TranslateCommand(DatabaseCommand):
 
         return output_path
 
-    def _write_translation_file(self, path: Path, filename: str, content: str) -> None:
-        """Write the translated content to a file.
-
-        Args:
-            path: The directory where the file will be saved.
-            filename: The name of the file.
-            content: The content to write to the file.
-        """
+    def _write_translation_file(self, path: Path, filename: str, content: str) -> Path:
+        """Write the untranslated content to a file so the agent can edit it."""
         full_path = path / filename
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(content)
-        logger.info(f"Translation file written to {full_path}.")
+        logger.info(f"Source translation file written to {full_path}. Ready for AI translation.")
+        return full_path
 
     def run(self) -> None:
         """Execute the translation process."""
@@ -217,14 +158,14 @@ class TranslateCommand(DatabaseCommand):
         filename, b64_content = export_result
 
         po_content = base64.b64decode(b64_content).decode("utf-8")
-        ai_translation = self._get_ai_translation(po_content)
-
-        if ai_translation is None:
-            logger.error("AI translation failed.")
-            return
 
         output_path = self._get_output_path()
         if not output_path:
             return
 
-        self._write_translation_file(output_path, filename, ai_translation)
+        full_path = self._write_translation_file(output_path, filename, po_content)
+        
+        success = self._run_ai_translation(full_path, po_content)
+        if not success:
+            logger.error("AI translation failed to execute.")
+
