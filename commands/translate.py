@@ -6,7 +6,7 @@ import base64
 from pathlib import Path
 from typing import Any
 
-from odev.common import args, progress
+from odev.common import args
 from odev.common.commands import DatabaseCommand
 from odev.common.databases.local import LocalDatabase
 from odev.common.databases.remote import RemoteDatabase
@@ -15,6 +15,7 @@ from odev.common.odoobin import OdoobinProcess
 
 from odev.plugins.odev_plugin_ai.common.mixins import AICommandMixin
 from odev.plugins.odev_plugin_ai.common.odoo_context import OdooContext
+
 
 logger = logging.getLogger(__name__)
 
@@ -109,9 +110,9 @@ class TranslateCommand(DatabaseCommand, AICommandMixin):
 
         agent = self.get_ai_agent()
         sandbox_dirs = [str(filepath.parent.resolve())]
-        
-        with progress.spinner(f"Waiting for '{self.args.cli}' to complete the translation"):
-            return agent.run(prompt_str, sandbox_dirs)
+
+        logger.info(f"Invoking {agent.cli} to translate {filepath.name}...")
+        return agent.run(prompt_str, sandbox_dirs)
 
     def _get_output_path(self) -> Path | None:
         """Determine and validate the output path for the translation file."""
@@ -164,8 +165,7 @@ class TranslateCommand(DatabaseCommand, AICommandMixin):
             return
 
         full_path = self._write_translation_file(output_path, filename, po_content)
-        
+
         success = self._run_ai_translation(full_path, po_content)
         if not success:
             logger.error("AI translation failed to execute.")
-
