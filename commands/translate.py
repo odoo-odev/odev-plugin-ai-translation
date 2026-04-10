@@ -14,7 +14,6 @@ from odev.common.logging import logging
 from odev.common.odoobin import OdoobinProcess
 
 from odev.plugins.odev_plugin_ai.common.mixins import AICommandMixin
-from odev.plugins.odev_plugin_ai.common.odoo_context import OdooContext
 
 
 logger = logging.getLogger(__name__)
@@ -97,19 +96,16 @@ class TranslateCommand(DatabaseCommand, AICommandMixin):
             raise TypeError("Unsupported database type for fetching context.")
 
         process.update_worktrees()
-        odoo_context = OdooContext(process)
-        paths_by_module = odoo_context.gather_po_context_paths(po_content)
 
         prompt_str = f"Translate the provided PO file directly at {filepath} into {self.args.lang} (ISO code).\n"
         prompt_str += "Write the translation directly to the file without returning anything in the chat.\n"
-        if paths_by_module:
-            prompt_str += "Use the following Odoo source files as context to better understand the terms to translate. You should read them if necessary:\n"
-            for module_name, files in paths_by_module.items():
-                for _, full_path in files:
-                    prompt_str += f" - {full_path} (from module '{module_name}')\n"
+        prompt_str += "You have access to the Odoo source code in the sandbox. "
+        prompt_str += "Please use the source file references defined in the PO file (the '#: code:...' comments) as context to better understand the terms to translate. "
+        prompt_str += "You should read these files if necessary to provide an accurate translation.\n"
 
         agent = self.get_ai_agent()
         sandbox_dirs = [str(filepath.parent.resolve())]
+        sandbox_dirs.extend([str(p.resolve()) for p in process.addons_paths if p.exists()])
 
         logger.info(f"Invoking {agent.cli} to translate {filepath.name}...")
         return agent.run(prompt_str, sandbox_dirs)
