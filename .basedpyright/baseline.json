@@ -1,0 +1,54 @@
+{
+  "files": {
+    "./commands/translate.py": [
+      {
+        "code": "reportIncompatibleVariableOverride",
+        "range": {
+          "endColumn": 22,
+          "lineCount": 1,
+          "startColumn": 6
+        }
+      },
+      {
+        "code": "reportIncompatibleVariableOverride",
+        "range": {
+          "endColumn": 22,
+          "lineCount": 1,
+          "startColumn": 6
+        }
+      },
+      {
+        "code": "reportIncompatibleVariableOverride",
+        "range": {
+          "endColumn": 22,
+          "lineCount": 1,
+          "startColumn": 6
+        }
+      },
+      {
+        "code": "reportCallIssue",
+        "range": {
+          "endColumn": 41,
+          "lineCount": 1,
+          "startColumn": 13
+        }
+      },
+      {
+        "code": "reportArgumentType",
+        "range": {
+          "endColumn": 41,
+          "lineCount": 1,
+          "startColumn": 13
+        }
+      },
+      {
+        "code": "reportReturnType",
+        "range": {
+          "endColumn": 79,
+          "lineCount": 1,
+          "startColumn": 15
+        }
+      }
+    ]
+  }
+}
