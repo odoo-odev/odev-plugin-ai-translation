@@ -101,7 +101,7 @@ class TranslateCommand(DatabaseCommand, AICommandMixin):
         prompt_str = f"Translate the provided PO file directly at {filepath} into {self.args.lang} (ISO code).\n"
         prompt_str += "Write the translation directly to the file without returning anything in the chat.\n"
         prompt_str += (
-            f"You have access to the Odoo {self._database.version} source code in the sandbox " f"at {worktree_path}.\n"
+            f"You have access to the Odoo {self._database.version} source code in the sandbox at {worktree_path}.\n"
         )
         prompt_str += (
             "Please use the source file references defined in the PO file (the '#: code:...' comments) "
